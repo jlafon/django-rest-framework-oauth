@@ -71,6 +71,7 @@ setup(
     name='django_rest_framework_oauth',
     version=version,
     license='BSD',
+    url='https://github.com/jlafon/django-rest-framework-oauth',
     description='OAuth Support for Django REST Framework',
     author='Jharrod LaFon',
     author_email='jlafon@eyesopen.com',
