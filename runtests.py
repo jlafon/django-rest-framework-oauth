@@ -6,7 +6,6 @@ import sys
 import os
 import subprocess
 
-
 PYTEST_ARGS = {
     'default': ['tests'],
     'fast': ['tests', '-q'],

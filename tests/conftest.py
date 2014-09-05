@@ -1,8 +1,3 @@
-"""
-Pytest configuration for the test suite
-"""
-
-
 def pytest_configure():
     from django.conf import settings
 
@@ -34,13 +29,13 @@ def pytest_configure():
             'django.contrib.sites',
             'django.contrib.messages',
             'django.contrib.staticfiles',
-
-            'rest_framework',
-            'rest_framework.authtoken',
-            'tests',
-            'tests.accounts',
-            'tests.records',
-            'tests.users',
+            # 'tests',
+            # 'tests.accounts',
+            # 'tests.records',
+            # 'tests.users',
+            'oauth_provider',
+            # 'provider',
+            'provider.oauth2',
         ),
         PASSWORD_HASHERS=(
             'django.contrib.auth.hashers.SHA1PasswordHasher',
@@ -51,15 +46,8 @@ def pytest_configure():
             'django.contrib.auth.hashers.CryptPasswordHasher',
         ),
     )
-
-    settings.INSTALLED_APPS += (
-        'oauth_provider',
-    )
-
-    settings.INSTALLED_APPS += (
-        'provider',
-        'provider.oauth2',
-    )
-
-    import django
-    django.setup()
+    try:
+        import django
+        django.setup()
+    except AttributeError:
+        pass
