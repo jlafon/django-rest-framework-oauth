@@ -1,4 +1,6 @@
+import time
 import datetime
+import oauth2 as oauth
 from provider import scope as oauth2_provider_scope
 from rest_framework.test import APIClient
 from rest_framework_oauth.authentication import (
@@ -54,6 +56,214 @@ urlpatterns = patterns(
         )
     )
 )
+
+
+class OAuthTests(TestCase):
+    """OAuth 1.0a authentication"""
+    urls = 'tests.test_oauth'
+
+    def setUp(self):
+        # these imports are here because oauth is optional and hiding them in try..except block or compat
+        # could obscure problems if something breaks
+        from oauth_provider.models import Consumer, Scope
+        from oauth_provider.models import Token as OAuthToken
+        from oauth_provider import consts
+
+        self.consts = consts
+
+        self.csrf_client = APIClient(enforce_csrf_checks=True)
+        self.username = 'john'
+        self.email = 'lennon@thebeatles.com'
+        self.password = 'password'
+        self.user = User.objects.create_user(self.username, self.email, self.password)
+
+        self.CONSUMER_KEY = 'consumer_key'
+        self.CONSUMER_SECRET = 'consumer_secret'
+        self.TOKEN_KEY = "token_key"
+        self.TOKEN_SECRET = "token_secret"
+
+        self.consumer = Consumer.objects.create(
+            key=self.CONSUMER_KEY, secret=self.CONSUMER_SECRET,
+            name='example', user=self.user, status=self.consts.ACCEPTED
+        )
+
+        self.scope = Scope.objects.create(name="resource name", url="api/")
+        self.token = OAuthToken.objects.create(
+            user=self.user, consumer=self.consumer, scope=self.scope,
+            token_type=OAuthToken.ACCESS, key=self.TOKEN_KEY, secret=self.TOKEN_SECRET,
+            is_approved=True
+        )
+
+    def _create_authorization_header(self):
+        params = {
+            'oauth_version': "1.0",
+            'oauth_nonce': oauth.generate_nonce(),
+            'oauth_timestamp': int(time.time()),
+            'oauth_token': self.token.key,
+            'oauth_consumer_key': self.consumer.key
+        }
+
+        req = oauth.Request(method="GET", url="http://example.com", parameters=params)
+
+        signature_method = oauth.SignatureMethod_PLAINTEXT()
+        req.sign_request(signature_method, self.consumer, self.token)
+
+        return req.to_header()["Authorization"]
+
+    def _create_authorization_url_parameters(self):
+        params = {
+            'oauth_version': "1.0",
+            'oauth_nonce': oauth.generate_nonce(),
+            'oauth_timestamp': int(time.time()),
+            'oauth_token': self.token.key,
+            'oauth_consumer_key': self.consumer.key
+        }
+
+        req = oauth.Request(method="GET", url="http://example.com", parameters=params)
+
+        signature_method = oauth.SignatureMethod_PLAINTEXT()
+        req.sign_request(signature_method, self.consumer, self.token)
+        return dict(req)
+
+    def test_post_form_passing_oauth(self):
+        """Ensure POSTing form over OAuth with correct credentials passes and does not require CSRF"""
+        auth = self._create_authorization_header()
+        response = self.csrf_client.post('/oauth/', {'example': 'example'}, HTTP_AUTHORIZATION=auth)
+        self.assertEqual(response.status_code, 200)
+
+    def test_post_form_repeated_nonce_failing_oauth(self):
+        """Ensure POSTing form over OAuth with repeated auth (same nonces and timestamp) credentials fails"""
+        auth = self._create_authorization_header()
+        response = self.csrf_client.post('/oauth/', {'example': 'example'}, HTTP_AUTHORIZATION=auth)
+        self.assertEqual(response.status_code, 200)
+
+        # simulate reply attack auth header containes already used (nonce, timestamp) pair
+        response = self.csrf_client.post('/oauth/', {'example': 'example'}, HTTP_AUTHORIZATION=auth)
+        self.assertIn(response.status_code, (status.HTTP_401_UNAUTHORIZED, status.HTTP_403_FORBIDDEN))
+
+    def test_post_form_token_removed_failing_oauth(self):
+        """Ensure POSTing when there is no OAuth access token in db fails"""
+        self.token.delete()
+        auth = self._create_authorization_header()
+        response = self.csrf_client.post('/oauth/', {'example': 'example'}, HTTP_AUTHORIZATION=auth)
+        self.assertIn(response.status_code, (status.HTTP_401_UNAUTHORIZED, status.HTTP_403_FORBIDDEN))
+
+    def test_post_form_consumer_status_not_accepted_failing_oauth(self):
+        """Ensure POSTing when consumer status is anything other than ACCEPTED fails"""
+        for consumer_status in (self.consts.CANCELED, self.consts.PENDING, self.consts.REJECTED):
+            self.consumer.status = consumer_status
+            self.consumer.save()
+
+            auth = self._create_authorization_header()
+            response = self.csrf_client.post('/oauth/', {'example': 'example'}, HTTP_AUTHORIZATION=auth)
+            self.assertIn(response.status_code, (status.HTTP_401_UNAUTHORIZED, status.HTTP_403_FORBIDDEN))
+
+    def test_post_form_with_request_token_failing_oauth(self):
+        """Ensure POSTing with unauthorized request token instead of access token fails"""
+        self.token.token_type = self.token.REQUEST
+        self.token.save()
+
+        auth = self._create_authorization_header()
+        response = self.csrf_client.post('/oauth/', {'example': 'example'}, HTTP_AUTHORIZATION=auth)
+        self.assertIn(response.status_code, (status.HTTP_401_UNAUTHORIZED, status.HTTP_403_FORBIDDEN))
+
+    def test_post_form_with_urlencoded_parameters(self):
+        """Ensure POSTing with x-www-form-urlencoded auth parameters passes"""
+        params = self._create_authorization_url_parameters()
+        auth = self._create_authorization_header()
+        response = self.csrf_client.post('/oauth/', params, HTTP_AUTHORIZATION=auth)
+        self.assertEqual(response.status_code, 200)
+
+    def test_get_form_with_url_parameters(self):
+        """Ensure GETing with auth in url parameters passes"""
+        params = self._create_authorization_url_parameters()
+        response = self.csrf_client.get('/oauth/', params)
+        self.assertEqual(response.status_code, 200)
+
+    def test_post_hmac_sha1_signature_passes(self):
+        """Ensure POSTing using HMAC_SHA1 signature method passes"""
+        params = {
+            'oauth_version': "1.0",
+            'oauth_nonce': oauth.generate_nonce(),
+            'oauth_timestamp': int(time.time()),
+            'oauth_token': self.token.key,
+            'oauth_consumer_key': self.consumer.key
+        }
+
+        req = oauth.Request(method="POST", url="http://testserver/oauth/", parameters=params)
+
+        signature_method = oauth.SignatureMethod_HMAC_SHA1()
+        req.sign_request(signature_method, self.consumer, self.token)
+        auth = req.to_header()["Authorization"]
+
+        response = self.csrf_client.post('/oauth/', HTTP_AUTHORIZATION=auth)
+        self.assertEqual(response.status_code, 200)
+
+    def test_get_form_with_readonly_resource_passing_auth(self):
+        """Ensure POSTing with a readonly scope instead of a write scope fails"""
+        read_only_access_token = self.token
+        read_only_access_token.scope.is_readonly = True
+        read_only_access_token.scope.save()
+        params = self._create_authorization_url_parameters()
+        response = self.csrf_client.get('/oauth-with-scope/', params)
+        self.assertEqual(response.status_code, 200)
+
+    def test_post_form_with_readonly_resource_failing_auth(self):
+        """Ensure POSTing with a readonly resource instead of a write scope fails"""
+        read_only_access_token = self.token
+        read_only_access_token.scope.is_readonly = True
+        read_only_access_token.scope.save()
+        params = self._create_authorization_url_parameters()
+        response = self.csrf_client.post('/oauth-with-scope/', params)
+        self.assertIn(response.status_code, (status.HTTP_401_UNAUTHORIZED, status.HTTP_403_FORBIDDEN))
+
+    def test_post_form_with_write_resource_passing_auth(self):
+        """Ensure POSTing with a write resource succeed"""
+        read_write_access_token = self.token
+        read_write_access_token.scope.is_readonly = False
+        read_write_access_token.scope.save()
+        params = self._create_authorization_url_parameters()
+        auth = self._create_authorization_header()
+        response = self.csrf_client.post('/oauth-with-scope/', params, HTTP_AUTHORIZATION=auth)
+        self.assertEqual(response.status_code, 200)
+
+    def test_bad_consumer_key(self):
+        """Ensure POSTing using HMAC_SHA1 signature method passes"""
+        params = {
+            'oauth_version': "1.0",
+            'oauth_nonce': oauth.generate_nonce(),
+            'oauth_timestamp': int(time.time()),
+            'oauth_token': self.token.key,
+            'oauth_consumer_key': 'badconsumerkey'
+        }
+
+        req = oauth.Request(method="POST", url="http://testserver/oauth/", parameters=params)
+
+        signature_method = oauth.SignatureMethod_HMAC_SHA1()
+        req.sign_request(signature_method, self.consumer, self.token)
+        auth = req.to_header()["Authorization"]
+
+        response = self.csrf_client.post('/oauth/', HTTP_AUTHORIZATION=auth)
+        self.assertEqual(response.status_code, 401)
+
+    def test_bad_token_key(self):
+        """Ensure POSTing using HMAC_SHA1 signature method passes"""
+        params = {
+            'oauth_version': "1.0",
+            'oauth_nonce': oauth.generate_nonce(),
+            'oauth_timestamp': int(time.time()),
+            'oauth_token': 'badtokenkey',
+            'oauth_consumer_key': self.consumer.key
+        }
+
+        req = oauth.Request(method="POST", url="http://testserver/oauth/", parameters=params)
+
+        signature_method = oauth.SignatureMethod_HMAC_SHA1()
+        req.sign_request(signature_method, self.consumer, self.token)
+        auth = req.to_header()["Authorization"]
+
+        response = self.csrf_client.post('/oauth/', HTTP_AUTHORIZATION=auth)
+        self.assertEqual(response.status_code, 401)
 
 
 class OAuth2Tests(TestCase):
