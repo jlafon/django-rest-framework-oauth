@@ -2,16 +2,64 @@ import datetime
 import unittest
 from provider import scope as oauth2_provider_scope
 from rest_framework.test import APIClient
-from rest_framework_oauth.authentication import oauth2_provider
-from rest_framework import status
+from rest_framework_oauth.authentication import (
+    oauth2_provider,
+    OAuthAuthentication,
+    OAuth2Authentication
+)
+from rest_framework import status, permissions
+from rest_framework.views import APIView
+from django.conf.urls import patterns, include, url
+from django.http import HttpResponse
 from django.utils.http import urlencode
 from django.test import TestCase
 from django.contrib.auth.models import User
 
 
+class OAuth2AuthenticationDebug(OAuth2Authentication):
+    allow_query_params_token = True
+
+
+class MockView(APIView):
+    permission_classes = (permissions.IsAuthenticated,)
+
+    def get(self, request):
+        return HttpResponse({'a': 1, 'b': 2, 'c': 3})
+
+    def post(self, request):
+        return HttpResponse({'a': 1, 'b': 2, 'c': 3})
+
+    def put(self, request):
+        return HttpResponse({'a': 1, 'b': 2, 'c': 3})
+
+
+urlpatterns = patterns(
+    '',
+    (r'^oauth/$', MockView.as_view(authentication_classes=[OAuthAuthentication])),
+    (
+        r'^oauth-with-scope/$',
+        MockView.as_view(
+            authentication_classes=[OAuthAuthentication],
+            permission_classes=[permissions.TokenHasReadWriteScope]
+        )
+    ),
+    url(r'^auth/', include('rest_framework.urls', namespace='rest_framework')),
+    url(r'^oauth2/', include('provider.oauth2.urls', namespace='oauth2')),
+    url(r'^oauth2-test/$', MockView.as_view(authentication_classes=[OAuth2Authentication])),
+    url(r'^oauth2-test-debug/$', MockView.as_view(authentication_classes=[OAuth2AuthenticationDebug])),
+    url(
+        r'^oauth2-with-scope-test/$',
+        MockView.as_view(
+            authentication_classes=[OAuth2Authentication],
+            permission_classes=[permissions.TokenHasReadWriteScope]
+        )
+    )
+)
+
+
 class OAuth2Tests(TestCase):
     """OAuth 2.0 authentication"""
-    urls = 'tests.test_authentication'
+    urls = 'tests.test_oauth'
 
     def setUp(self):
         self.csrf_client = APIClient(enforce_csrf_checks=True)
