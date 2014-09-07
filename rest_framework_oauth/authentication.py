@@ -9,7 +9,6 @@ import provider as oauth2_provider
 from oauth_provider.store import store as oauth_provider_store
 from rest_framework.authentication import BaseAuthentication, get_authorization_header
 from rest_framework import exceptions
-from django.core.exceptions import ImproperlyConfigured
 from django.conf import settings
 
 
@@ -44,16 +43,6 @@ class OAuthAuthentication(BaseAuthentication):
 
     def __init__(self, *args, **kwargs):
         super(OAuthAuthentication, self).__init__(*args, **kwargs)
-
-        if oauth is None:
-            raise ImproperlyConfigured(
-                "The 'oauth2' package could not be imported."
-                "It is required for use with the 'OAuthAuthentication' class.")
-
-        if oauth_provider is None:
-            raise ImproperlyConfigured(
-                "The 'django-oauth-plus' package could not be imported."
-                "It is required for use with the 'OAuthAuthentication' class.")
 
     def authenticate(self, request):
         """
@@ -149,11 +138,6 @@ class OAuth2Authentication(BaseAuthentication):
 
     def __init__(self, *args, **kwargs):
         super(OAuth2Authentication, self).__init__(*args, **kwargs)
-
-        if oauth2_provider is None:
-            raise ImproperlyConfigured(
-                "The 'django-oauth2-provider' package could not be imported. "
-                "It is required for use with the 'OAuth2Authentication' class.")
 
     def authenticate(self, request):
         """
