@@ -59,7 +59,7 @@ This authentication class depends on the optional [django-oauth2-provider][djang
 Then add `OAuth2Authentication` to your global `DEFAULT_AUTHENTICATION` setting:
 
     'DEFAULT_AUTHENTICATION_CLASSES': (
-        'rest_framework.authentication.OAuth2Authentication',
+        'rest_framework_oauth.authentication.OAuth2Authentication',
     ),
 
 You must also include the following in your root `urls.py` module:
