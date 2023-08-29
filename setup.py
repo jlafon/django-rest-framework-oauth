@@ -80,7 +80,7 @@ setup(
     cmdclass={'test': PyTest},
     install_requires=[
         'django-oauth-plus==2.2.4',
-        'oauth2==1.5.211',
+        'oauth2==1.9.0.post1',
         'django-oauth2-provider'
         ],
     classifiers=[
